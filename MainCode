@@ -43,3 +43,441 @@ drop_data = data.iloc[:drop_size]
 tran_data = data.iloc[drop_size:drop_size + tran_size]
 gan_data = data.iloc[drop_size + tran_size:]
 print(len(drop_data), len(tran_data), len(gan_data))
+
+
+def split_label(data):
+    features = data.drop(columns=['label'])
+    target=list(data['label'].values)
+    return features,target
+
+def split_features(data):
+
+    numerical_columns = []
+    categorical_columns = []
+
+    # Extracting column names based on types
+    for column in data.columns:
+        if data[column].dtype in ['int64', 'float64']:
+            numerical_columns.append(column)
+        elif data[column].dtype == 'bool':
+            categorical_columns.append(column)
+
+    # Assigning columns to the respective variables
+    numerical_data = data[numerical_columns]
+    categorical_data = data[categorical_columns]
+
+    print("Numerical data columns:", len(numerical_columns), numerical_data.shape)
+    print("Categorical data columns:", len(categorical_columns), categorical_data.shape)
+def get_num_categories(cat_data):
+  num_categories = []
+  for column in cat_data.columns:
+    num_categories.append(len(cat_data[column].unique()))
+
+  return tuple(num_categories)
+
+rom sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+
+def num_cat_tar_tensors(num_data, cat_data, target=None):
+    # Handle missing values in numerical data
+    imputer = SimpleImputer(strategy='mean')
+    num_data_imputed = imputer.fit_transform(num_data)
+
+    # Normalize numerical data
+    scaler = StandardScaler()
+    num_data_normalized = scaler.fit_transform(num_data_imputed)
+
+    num_tensor = torch.tensor(num_data_normalized, dtype=torch.float)
+    cat_tensor = torch.tensor(cat_data.values, dtype=torch.long)
+    print("Numerical Tensor:", num_tensor.shape)
+    print("Categorical Tensor:", cat_tensor.shape)
+
+    if target is not None:
+        label = torch.tensor(target)
+        print("Target Tensor:", label.shape)
+        return num_tensor, cat_tensor, label
+    else:
+        return num_tensor, cat_tensor
+def calculate_input_size(num_tensor, cat_tensor):
+    num_input_size = list(num_tensor[0].shape)
+    num_input_size = num_input_size[0]
+    cat_input_size = list(cat_tensor[0].shape)
+    cat_input_size = cat_input_size[0]
+
+    input_size = num_input_size + cat_input_size
+    print(num_input_size, cat_input_size, input_size)
+    return num_input_size, cat_input_size, input_size
+
+class Generator(nn.Module):
+    def __init__(self, noise_size=100, output_size=512, hidden_sizes=[512], dropout_rate=0.1):
+        super(Generator, self).__init__()
+        layers = []
+        hidden_sizes = [noise_size] + hidden_sizes
+        for i in range(len(hidden_sizes)-1):
+            layers.extend([nn.Linear(hidden_sizes[i], hidden_sizes[i+1]), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(dropout_rate)])
+
+        layers.append(nn.Linear(hidden_sizes[-1],output_size))
+        self.layers = nn.Sequential(*layers)
+
+    def forward(self, noise):
+        output_rep = self.layers(noise)
+        return output_rep
+
+
+class Discriminator(nn.Module):
+    def __init__(self, input_size=512, hidden_sizes=[512], num_labels=2, dropout_rate=0.1):
+        super(Discriminator, self).__init__()
+        self.input_dropout = nn.Dropout(p=dropout_rate)
+        layers = []
+        hidden_sizes = [input_size] + hidden_sizes
+        for i in range(len(hidden_sizes)-1):
+            layers.extend([nn.Linear(hidden_sizes[i], hidden_sizes[i+1]), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(dropout_rate)])
+
+        self.layers = nn.Sequential(*layers) #per il flatten
+        self.logit = nn.Linear(hidden_sizes[-1],num_labels+1) # +1 for the probability of this sample being fake/real.
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, input_rep):
+        input_rep = self.input_dropout(input_rep)
+        last_rep = self.layers(input_rep)
+        logits = self.logit(last_rep)
+        probs = self.softmax(logits)
+        return last_rep, logits, probs
+
+hidden_size = input_size
+# Define the number and width of hidden layers
+hidden_levels_g = [hidden_size for i in range(0, num_hidden_layers_g)]
+hidden_levels_d = [hidden_size for i in range(0, num_hidden_layers_d)]
+
+#-------------------------------------------------
+#   Instantiate the Transformer, Generator and Discriminator
+#-------------------------------------------------
+transformer = FTTransformer(
+    categories = (2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2),
+    num_continuous = num_input_size,
+    dim = 32,
+    dim_out = input_size,
+    depth = 6,
+    heads = 8,
+    attn_dropout = 0.1,
+    ff_dropout = 0.1)
+
+generator = Generator(noise_size=noise_size, output_size=hidden_size, hidden_sizes=hidden_levels_g, dropout_rate=out_dropout_rate)
+discriminator = Discriminator(input_size=hidden_size, hidden_sizes=hidden_levels_d, num_labels=len(label_list), dropout_rate=out_dropout_rate)
+
+# Put everything in the GPU if available
+if torch.cuda.is_available():
+
+ generator.cuda()
+ discriminator.cuda()
+ transformer.cuda()
+
+
+
+def train_model(transformer, discriminator, generator, train_dataloader, noise_size, tran_optimizer,gen_optimizer, dis_optimizer, label_list):
+    print('TRAINING')
+    total_t0 = time.time()
+
+
+    tr_t_loss = 0
+    tr_g_loss = 0
+    tr_d_loss = 0
+    transformer.train()
+    generator.train()
+    discriminator.train()
+
+    pbar = tqdm(enumerate(train_dataloader), total=len(train_dataloader))
+    for step, batch in pbar:
+        cat = batch[0].to(device)
+        num = batch[1].to(device)
+        b_labels = batch[2].to(device)
+
+        #print('label_len:',b_labels.shape)
+        real_batch_size = train_dataloader.batch_size
+
+        model_outputs = transformer(cat,num) #attention_mask=b_input_mask)
+        t_loss=tran_loss_fn(model_outputs,b_labels)
+        hidden_states = model_outputs#model_outputs[-1]
+        #print(model_outputs.shape)
+
+noise = torch.zeros(real_batch_size, noise_size).uniform_(0, 1)
+        gen_rep = generator(noise)
+        #print(gen_rep.shape)
+
+        disciminator_input = torch.cat([hidden_states, gen_rep], dim=0)
+        features, logits, probs = discriminator(disciminator_input)
+
+        features_list = torch.split(features, real_batch_size)
+        D_real_features = features_list[0]
+        D_fake_features = features_list[1]
+
+        logits_list = torch.split(logits, real_batch_size)
+        D_real_logits = logits_list[0]
+        D_fake_logits = logits_list[1]
+
+        probs_list = torch.split(probs, real_batch_size)
+        D_real_probs = probs_list[0]
+        D_fake_probs = probs_list[1]
+
+        g_loss_d = -1 * torch.mean(torch.log(1 - D_fake_probs[:,-1] + epsilon))
+        g_feat_reg = torch.mean(torch.pow(torch.mean(D_real_features, dim=0) - torch.mean(D_fake_features, dim=0), 2))
+        g_loss = g_loss_d + g_feat_reg
+
+        # Compute Log Probabilities
+        logits = D_real_logits[:, 0:-1]
+        log_probs = F.log_softmax(logits, dim=-1)
+        #print('len_log probs',len(log_probs))
+
+        # Convert Labels to One-Hot Encoding
+        #label2one_hot = torch.nn.functional.one_hot(b_labels, len(label_list))
+        #print('hotlabel_len:',len(label2one_hot))
+
+        # Compute Per-example Cross-entropy Loss
+        #per_example_loss = -torch.sum(label2one_hot * log_probs, dim=0)
+        # Compute Cross-entropy Loss
+        #print(logits.size(0),b_labels.size(0))
+        d_loss = d_loss_fn(logits, b_labels)
+
+
+        tran_optimizer.zero_grad()
+        gen_optimizer.zero_grad()
+        dis_optimizer.zero_grad()
+
+        # Backward pass
+        t_loss.backward(retain_graph=True)
+        g_loss.backward(retain_graph=True)
+        d_loss.backward(retain_graph=True)
+
+        tran_optimizer.step()
+        gen_optimizer.step()
+        dis_optimizer.step()
+
+        tr_t_loss += t_loss.item()*cat.size(0)
+        tr_g_loss += g_loss.item()
+        tr_d_loss += d_loss.item()
+
+        # Update progress bar
+        pbar.set_description(f'Training Step {step}/{len(train_dataloader)}')
+
+    avg_train_loss_t= tr_t_loss/len(train_dataloader)
+    avg_train_loss_g = tr_g_loss / len(train_dataloader)
+    avg_train_loss_d = tr_d_loss / len(train_dataloader)
+
+    print('Training Loss Transformer:', avg_train_loss_t,'Training Loss generator:',avg_train_loss_g,'Training Loss discriminator', avg_train_loss_d)
+
+    return avg_train_loss_t,avg_train_loss_g, avg_train_loss_d
+
+
+def validate_model(transformer, discriminator, generator, val_dataloader, noise_size, label_list):
+    print("VALIDATION")
+    transformer.eval()
+    generator.eval()
+    discriminator.eval()
+
+    val_t_loss = 0
+    val_g_loss = 0
+    val_d_loss = 0
+
+    true_labels = []
+    pred_labels = []
+
+    pbar = tqdm(enumerate(val_dataloader), total=len(val_dataloader))
+    for step, batch in pbar:
+        cat = batch[0].to(device)
+        num = batch[1].to(device)
+        b_labels = batch[2].to(device)
+        real_batch_size = val_dataloader.batch_size
+
+        with torch.no_grad():
+            model_outputs = transformer(cat, num)
+            t_loss=tran_loss_fn(model_outputs,b_labels)
+            hidden_states = model_outputs
+
+            noise = torch.zeros(real_batch_size, noise_size).uniform_(0, 1)
+            gen_rep = generator(noise)
+
+           discriminator_input = torch.cat([hidden_states, gen_rep], dim=0)
+            features, logits, probs = discriminator(discriminator_input)
+
+            features_list = torch.split(features, real_batch_size)
+            D_real_features = features_list[0]
+            D_fake_features = features_list[1]
+
+            logits_list = torch.split(logits, real_batch_size)
+            D_real_logits = logits_list[0]
+            D_fake_logits = logits_list[1]
+
+            probs_list = torch.split(probs, real_batch_size)
+            D_real_probs = probs_list[0]
+            D_fake_probs = probs_list[1]
+
+            g_loss_d = -1 * torch.mean(torch.log(1 - D_fake_probs[:, -1] + epsilon))
+            g_feat_reg = torch.mean(torch.pow(torch.mean(D_real_features, dim=0) - torch.mean(D_fake_features, dim=0), 2))
+            g_loss = g_loss_d + g_feat_reg
+
+            logits = D_real_logits[:, 0:-1]
+            log_probs = F.log_softmax(logits, dim=-1)
+            d_loss = d_loss_fn(logits, b_labels)
+
+        val_t_loss += t_loss.item() * cat.size(0)
+        val_g_loss += g_loss.item()
+        val_d_loss += d_loss.item()
+
+        true_labels.extend(b_labels.tolist())
+        pred_labels.extend(torch.argmax(log_probs, dim=1).tolist())
+
+        # Update progress bar
+        pbar.set_description(f'Validation Step {step}/{len(val_dataloader)}')
+
+    # Calculate metrics
+    accuracy = accuracy_score(true_labels, pred_labels)
+    f1 = f1_score(true_labels, pred_labels, average='weighted')
+
+    avg_val_loss_t = val_t_loss / len(val_dataloader)
+    avg_val_loss_g = val_g_loss / len(val_dataloader)
+    avg_val_loss_d = val_d_loss / len(val_dataloader)
+
+    print('Validation Loss Transformer:',avg_val_loss_t,
+          'Validation Loss Generator:', avg_val_loss_g,
+          'Validation Loss Discriminator:', avg_val_loss_d,
+          'Validation Accuracy:', accuracy,
+          'Validation F1 Score:', f1
+          )
+
+    return avg_val_loss_t, avg_val_loss_g, avg_val_loss_d, accuracy, f1
+def test_model(transformer, discriminator, generator, test_dataloader, noise_size, label_list):
+    transformer.eval()
+    generator.eval()
+    discriminator.eval()
+
+    test_t_loss = 0
+    test_g_loss = 0
+    test_d_loss = 0
+
+    true_labels = []
+    pred_labels = []
+
+    with torch.no_grad():
+        for step, batch in enumerate(test_dataloader):
+            cat = batch[0].to(device)
+            num = batch[1].to(device)
+            b_labels = batch[2].to(device)
+            real_batch_size = test_dataloader.batch_size
+
+            model_outputs = transformer(cat, num)
+            t_loss=tran_loss_fn(model_outputs,b_labels)
+            hidden_states = model_outputs
+
+            noise = torch.zeros(real_batch_size, noise_size).uniform_(0, 1)
+            gen_rep = generator(noise)
+
+            discriminator_input = torch.cat([hidden_states, gen_rep], dim=0)
+            features, logits, probs = discriminator(discriminator_input)
+
+            features_list = torch.split(features, real_batch_size)
+            D_real_features = features_list[0]
+            D_fake_features = features_list[1]
+
+            logits_list = torch.split(logits, real_batch_size)
+            D_real_logits = logits_list[0]
+            D_fake_logits = logits_list[1]
+
+            probs_list = torch.split(probs, real_batch_size)
+            D_real_probs = probs_list[0]
+            D_fake_probs = probs_list[1]
+
+            g_loss_d = -1 * torch.mean(torch.log(1 - D_fake_probs[:, -1] + epsilon))
+            g_feat_reg = torch.mean(torch.pow(torch.mean(D_real_features, dim=0) - torch.mean(D_fake_features, dim=0), 2))
+            g_loss = g_loss_d + g_feat_reg
+
+            logits = D_real_logits[:, 0:-1]
+            log_probs = F.log_softmax(logits, dim=-1)
+            d_loss = d_loss_fn(logits, b_labels)
+
+            test_t_loss += t_loss.item() * cat.size(0)
+            test_g_loss += g_loss.item()
+            test_d_loss += d_loss.item()
+
+            true_labels.extend(b_labels.tolist())
+            pred_labels.extend(torch.argmax(log_probs, dim=1).tolist())
+
+    # Calculate metrics
+    accuracy = accuracy_score(true_labels, pred_labels)
+    f1 = f1_score(true_labels, pred_labels, average='weighted')
+    label_list_strings = [str(label) for label in label_list]
+    label_list = label_list_strings
+    class_report = classification_report(true_labels, pred_labels, target_names=label_list)
+
+    avg_test_loss_t = test_t_loss / len(test_dataloader)
+    avg_test_loss_g = test_g_loss / len(test_dataloader)
+    avg_test_loss_d = test_d_loss / len(test_dataloader)
+
+    print('Test Loss Transformer:', avg_test_loss_t)
+    print('Test Loss Generator:', avg_test_loss_g)
+    print('Test Loss Discriminator:', avg_test_loss_d)
+    print('Test Accuracy:', accuracy)
+    print('Test F1 Score:', f1)
+    print('Classification Report:\n', class_report)
+
+    return avg_test_loss_t, avg_test_loss_g, avg_test_loss_d, accuracy, f1, class_report
+batch_size=64
+train_dataloader, valid_dataloader, test_dataloader=dataloaders(train_dataset,valid_dataset,test_dataset,batch_size)
+
+best_eval_loss_tran = float('inf')
+best_eval_loss_gen = float('inf')
+best_eval_loss_disc = float('inf')
+
+
+best_tranmodel_path = "/content/drive/MyDrive/Colab Notebooks/tran_model.pt"
+best_genmodel_path = "/content/drive/MyDrive/Colab Notebooks/gen_model.pt"
+best_discmodel_path = "/content/drive/MyDrive/Colab Notebooks/disc_model.pt"
+
+training_stats = []
+validation_stats=[]
+
+for epoch_i in range(5): #would come from  num_train_epochs just manually defining for testing
+  print('Epoch:',epoch_i+1)
+  train_loss_t,train_loss_g,train_loss_d=train_model(transformer, discriminator, generator, train_dataloader, noise_size, tran_optimizer,gen_optimizer, dis_optimizer, label_list)
+  val_loss_t, val_loss_g, val_loss_d, accuracy, f1=validate_model(transformer, discriminator, generator, valid_dataloader, noise_size, label_list)
+
+  if val_loss_t < best_eval_loss_tran:
+    best_eval_loss_tran = val_loss_t
+    torch.save(transformer.state_dict(), best_tranmodel_path)
+
+  if val_loss_g < best_eval_loss_gen:
+    best_eval_loss_gen = val_loss_g
+    torch.save(generator.state_dict(), best_genmodel_path)
+
+  if val_loss_d < best_eval_loss_disc:
+    best_eval_loss_disc = val_loss_d
+    torch.save(discriminator.state_dict(), best_discmodel_path)
+ training_stats.append(
+        {
+            'epoch': epoch_i ,
+            'Training Loss Transformer': train_loss_t,
+            'Training Loss generator': train_loss_g,
+            'Training Loss discriminator': train_loss_d
+        }
+    )
+  validation_stats.append(
+      {
+          'epoch': epoch_i,
+          'Validation Loss Transformer': val_loss_t,
+          'Validation Loss Generator': val_loss_g,
+          'Validation Loss Discriminator': val_loss_d,
+          'Disc Validation Accuracy': accuracy,
+          'DiscValidation F1 Score': f1
+          }
+      )
+tran_model = torch.load(best_tranmodel_path)
+gen_model=torch.load(best_genmodel_path)
+disc_model=torch.load(best_discmodel_path)
+tran_model = transformer
+gen_model=generator
+dis_model=discriminator
+
+
+tran_model.load_state_dict(torch.load(best_tranmodel_path))
+gen_model.load_state_dict(torch.load(best_genmodel_path))
+dis_model.load_state_dict(torch.load(best_discmodel_path))
+test_model(tran_model, dis_model, gen_model, test_dataloader, noise_size, label_list)
