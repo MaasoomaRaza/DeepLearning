@@ -1,1 +1,26 @@
+import os              # loading files
+import numpy as np     # intermediary data handling
+import pandas as pd    # data processing
+import random
+import torch
+import matplotlib.pyplot as plt# sampling for training and testing datasets
 
+from __future__ import print_function
+import tensorflow as tf
+import seaborn as sns
+import missingno
+from sklearn.svm import SVC
+import matplotlib.pyplot as plt
+from sklearn import preprocessing
+from pandas.plotting import scatter_matrix
+from sklearn.metrics import confusion_matrix
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+import warnings
+warnings.filterwarnings('ignore')
+import time
+from google.colab import drive
+drive.mount('/content/drive')
+import timeit        # To roughly show speed improvement
+import argparse      # For an example on GPU usage in scripts
