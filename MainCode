@@ -1,1 +1,45 @@
+import torch
+import io
+import torch.nn.functional as F
+import random
+import pandas as pd
+import numpy as np
+import time
+import math
+import datetime
+import torch.nn as nn
+import transformers
+from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
+from tab_transformer_pytorch import TabTransformer,FTTransformer
+from sklearn.model_selection import train_test_split
+from tqdm import tqdm
+from sklearn.metrics import accuracy_score, f1_score, classification_report
 
+# If there's a GPU available...
+if torch.cuda.is_available():
+    # Tell PyTorch to use the GPU.
+    device = torch.device("cuda")
+    print('There are %d GPU(s) available.' % torch.cuda.device_count())
+    print('We will use the GPU:', torch.cuda.get_device_name(0))
+# If not...
+else:
+    print('No GPU available, using the CPU instead.')
+    device = torch.device("cpu")
+
+##Set random values----For reproducibility
+seed_val = 42
+random.seed(seed_val)
+np.random.seed(seed_val)
+torch.manual_seed(seed_val)
+if torch.cuda.is_available():
+  torch.cuda.manual_seed_all(seed_val)
+
+#splitting data for local use
+drop_size = int(len(data) * 0.6)
+tran_size = int(len(data) * 0.3)
+gan_size = len(data) - drop_size - tran_size
+
+drop_data = data.iloc[:drop_size]
+tran_data = data.iloc[drop_size:drop_size + tran_size]
+gan_data = data.iloc[drop_size + tran_size:]
+print(len(drop_data), len(tran_data), len(gan_data))
