@@ -24,3 +24,387 @@ from google.colab import drive
 drive.mount('/content/drive')
 import timeit        # To roughly show speed improvement
 import argparse      # For an example on GPU usage in scripts
+
+
+
+DATASET_DIRECTORY = "/content/drive/MyDrive/archive/WSNPROJECT/wataiData/Scaleddata/"
+csv_files = [k for k in os.listdir(DATASET_DIRECTORY) if k.endswith('.csv')]
+csv_files.sort()
+
+
+
+import os
+import pandas as pd
+from sklearn.model_selection import StratifiedShuffleSplit
+from imblearn.over_sampling import SMOTE
+
+# Set the directory path and folder names
+dir_path = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/Scaleddata/'
+train_folder = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/Splitteddata/train'
+val_folder = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/Splitteddata/val/'
+test_folder = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/Splitteddata/test/'
+
+# Create the folders if they don't exist
+if not os.path.exists(train_folder):
+	os.makedirs(train_folder)
+if not os.path.exists(val_folder):
+	os.makedirs(val_folder)
+if not os.path.exists(test_folder):
+	os.makedirs(test_folder)
+
+# Loop through all CSV files in the directory
+for i, file in enumerate(os.listdir(dir_path)):
+	if file.endswith('.csv'):
+		# Read the CSV file
+		df = pd.read_csv(os.path.join(dir_path, file))
+
+		# Stratified split into train, validation, and test sets
+		sss = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
+		train_df, temp_df = df, df
+		for train_index, temp_index in sss.split(df, df['label']):
+			train_df, temp_df = df.iloc[train_index], df.iloc[temp_index]
+
+		sss = StratifiedShuffleSplit(n_splits=1, test_size=0.5, random_state=42)
+		val_df, test_df = temp_df, temp_df
+		for val_index, test_index in sss.split(temp_df, temp_df['label']):
+			val_df, test_df = temp_df.iloc[val_index], temp_df.iloc[test_index]
+
+		# Save the dataframes to the respective folders with unique filenames
+		train_df.to_csv(os.path.join(train_folder, f'train_{i+1}.csv'), index=False)
+		val_df.to_csv(os.path.join(val_folder, f'val_{i+1}.csv'), index=False)
+		test_df.to_csv(os.path.join(test_folder, f'test_{i+1}.csv'), index=False)
+
+
+import pandas as pd
+from sklearn.utils import resample
+
+# Read the CSV file
+df = pd.read_csv('/content/drive/MyDrive/archive/WSNPROJECT/wataiData/Scaleddata/scaled_encoded_0.005percent_34classes.csv')
+
+# Get the class labels and their counts
+class_counts = df['label'].value_counts()
+
+# Determine the minority class threshold (e.g., classes with counts less than 1000)
+minority_threshold = 10000
+
+# Identify the minority classes
+minority_classes = class_counts[class_counts < minority_threshold].index
+
+# Oversample the minority classes
+for label in minority_classes:
+	df_minority = df[df['label'] == label]
+	df_minority_oversampled = resample(df_minority, replace=True, n_samples=minority_threshold, random_state=42)
+	df = pd.concat([df, df_minority_oversampled])
+
+# Save the oversampled data to a new CSV file
+df.to_csv('/content/drive/MyDrive/archive/WSNPROJECT/wataiData/Scaleddata/scaled_encoded_0.005percent_34classes.csv', index=False)
+
+
+import os
+import pandas as pd
+
+# Set the directory path
+dir_path = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/Scaleddata/'
+
+# Loop through all CSV files in the directory
+for file in os.listdir(dir_path):
+	if file.endswith('.csv'):
+		# Read the CSV file
+		df = pd.read_csv(os.path.join(dir_path, file))
+
+		# Get the unique labels and their counts
+		label_counts = df['label'].value_counts()
+
+		# Print the unique labels and their counts
+		print(f"File: {file}")
+		print(label_counts)
+		print("------------------------------------")
+
+
+import os
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedShuffleSplit
+
+
+# Set the directory path and folder names
+dir_path = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/Scaleddata/'
+train_folder = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/Splitteddata/train'
+val_folder = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/Splitteddata/validation'
+test_folder = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/Splitteddata/test'
+
+# Create the folders if they don't exist
+if not os.path.exists(train_folder):
+	os.makedirs(train_folder)
+if not os.path.exists(val_folder):
+	os.makedirs(val_folder)
+if not os.path.exists(test_folder):
+	os.makedirs(test_folder)
+
+# Loop through all CSV files in the directory
+for file in os.listdir(dir_path):
+	if file.endswith('.csv'):
+		# Read the CSV file
+		df = pd.read_csv(os.path.join(dir_path, file))
+
+		# Stratified split into train, validation, and test sets
+		sss = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
+		train_index, temp_index = sss.split(df, df['label'])
+		train_df, temp_df = df.iloc[train_index], df.iloc[temp_index]
+
+		sss = StratifiedShuffleSplit(n_splits=1, test_size=0.5, random_state=42)
+		val_index, test_index = sss.split(temp_df, temp_df['label'])
+		val_df, test_df = temp_df.iloc[val_index], temp_df.iloc[test_index]
+
+		# Save the dataframes to the respective folders
+		train_df.to_csv(os.path.join(train_folder, file), index=False)
+		val_df.to_csv(os.path.join(val_folder, file), index=False)
+		test_df.to_csv(os.path.join(test_folder, file), index=False)
+
+
+mport dask.dataframe as dd
+from scipy.stats import zscore
+
+
+# Define the directory containing the CSV files
+directory = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/results'
+
+# Loop through each file in the directory
+for filename in os.listdir(directory):
+    # Check if the file is a CSV file
+    if filename.endswith('.csv'):
+        # Load the file into a pandas DataFrame
+        data = pd.read_csv(os.path.join(directory, filename))
+
+        # Select only numerical columns
+        numerical_data = data.select_dtypes(include=[int, float])
+
+        # Define the chunk size
+        chunk_size = 10000
+
+        # Split the data into chunks
+        chunks = [numerical_data[i:i+chunk_size] for i in range(0, len(numerical_data), chunk_size)]
+
+        # Loop through each column in the numerical DataFrame
+        for column in numerical_data.columns:
+            # Process each chunk using dask
+            z_score_chunks = []
+            for chunk in chunks:
+                # Convert the chunk to a dask DataFrame
+                dask_chunk = dd.from_pandas(chunk, npartitions=4)
+
+                # Calculate the z-score for the chunk
+                z_score_chunk = dask_chunk.map_partitions(lambda x: zscore(x[column])).compute()
+
+                # Append the z-score chunk to the list
+                z_score_chunks.append(z_score_chunk)
+
+
+import pandas as pd
+import numpy as np
+
+# Load your data into a pandas DataFrame
+data = pd.read_csv('/content/drive/MyDrive/archive/WSNPROJECT/wataiData/results/0.001percent_8classes.csv')
+
+# Define the capping limit (e.g., 1.5*IQR)
+capping_limit = 1.5
+
+# Loop through each column in the DataFrame
+for column in data.columns:
+    # Check if the column contains numeric data and is not boolean
+    if pd.api.types.is_numeric_dtype(data[column]) and not pd.api.types.is_bool_dtype(data[column]):
+        # Calculate the IQR
+        Q1 = data[column].quantile(0.25)
+        Q3 = data[column].quantile(0.75)
+        IQR = Q3 - Q1
+
+        # Identify outliers (values outside 1.5*IQR)
+        outliers = data[(data[column] < Q1 - capping_limit * IQR) | (data[column] > Q3 + capping_limit * IQR)]
+
+        # Cap outliers
+        data.loc[data[column] < Q1 - capping_limit * IQR, column] = Q1 - capping_limit * IQR
+        data.loc[data[column] > Q3 + capping_limit * IQR, column] = Q3 + capping_limit * IQR
+
+# Save the updated DataFrame to a new CSV file
+data.to_csv('/content/drive/MyDrive/archive/WSNPROJECT/wataiData/resultscappeddata/0.001percent_8classes.csv', index=False)
+
+#after IQR now in the next code is for label encoding.Label encoding is a preprocessing step that is typically required for categorical data
+#If your data contains categorical columns (such as strings or factors), you will need to perform label encoding to convert
+# them into numerical values that can be used by the algorithm.
+#Label encoding replaces each categorical value with a numerical value, such as an integer or a one-hot encoded vector.
+#This allows the algorithm to treat the categorical data as numerical data and perform calculations on it
+
+
+import pandas as pd
+from sklearn.preprocessing import LabelEncoder
+# Set the input directory containing your CSV files
+input_dir = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/resultscappeddata'
+
+# Set the output directory for the encoded files
+output_dir = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/labelencodingaftercapping'
+
+# Load your data from the CSV file
+#data = pd.read_csv('/content/drive/MyDrive/archive/WSNPROJECT/wataiData/resultscappeddata/0.001percent_8classes.csv')
+
+# Create a LabelEncoder object
+le = LabelEncoder()
+
+# Loop through each CSV file in the input directory
+for filename in os.listdir(input_dir):
+    # Check if the file is a CSV file
+    if filename.endswith('.csv'):
+        # Load the data from the CSV file
+        data = pd.read_csv(os.path.join(input_dir, filename))
+
+        # Loop through each column in the DataFrame
+        for column in data.columns:
+            # Check if the column contains categorical data
+            if data[column].dtype == 'object':
+                # Perform label encoding
+                data[column] = le.fit_transform(data[column])
+
+        # Save the encoded data to a new CSV file in the output directory
+        data.to_csv(os.path.join(output_dir, f'encoded_{filename}'), index=False)
+
+# Save the encoded data to a new CSV file
+#data.to_csv('/content/drive/MyDrive/archive/WSNPROJECT/wataiData/labelencodingaftercapping/0.001percent_8classes.csv', index=False)
+
+#after label encoding, now in the next code normalize or scale your numerical columns before implementing your GAN model
+# This helps to:
+#Reduce the effect of dominant features
+#Improve model convergence
+#Enhance generalization
+
+
+import os
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+
+# Set the folder path containing your CSV files
+input_folder_path = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/labelencodingaftercapping'
+
+# Set the output folder path for the scaled files
+output_folder_path = '/content/drive/MyDrive/archive/WSNPROJECT/wataiData/Scaleddata'
+
+# Create a StandardScaler object
+scaler = StandardScaler()
+
+# Loop through each CSV file in the input folder
+for filename in os.listdir(input_folder_path):
+    # Check if the file is a CSV file
+    if filename.endswith('.csv'):
+        # Load the data from the CSV file
+        data = pd.read_csv(os.path.join(input_folder_path, filename))
+
+        # Select only the numerical columns (excluding the label column)
+        numerical_cols = data.select_dtypes(include=[int, float]).columns
+        numerical_cols = numerical_cols.drop('label')  # Exclude the label column
+
+        # Loop through each numerical column
+        for column in numerical_cols:
+            # Scale the column
+            data[column] = scaler.fit_transform(data[[column]])
+
+        # Save the scaled data to a new CSV file in the output folder
+        data.to_csv(os.path.join(output_folder_path, f'scaled_{filename}'), index=False)
+
+        #scaling is done after label encoding
+        #label encoding was done after IQR
+        #IQR was done after z score calculation and when the results show outliers
+        #after scaling data is ready for GAN
+
+
+data = pd.read_csv('/content/drive/MyDrive/archive/WSNPROJECT/wataiData/results/0.01percent_8classes.csv')
+label_dict_08 = {
+    'Benign': 0,
+    'BruteForce': 1,
+    'DDoS': 2,
+    'DoS': 3,
+    'Mirai': 4,
+    'Recon': 5,
+    'Spoofing': 6,
+    'Web': 7
+}
+print(label_dict_08)
+
+labels = ['Benign', 'BruteForce', 'DDoS', 'DoS', 'Mirai', 'Recon', 'Spoofing', 'Web']
+label_dict_08 = dict(enumerate(labels))
+
+
+data = pd.read_csv('/content/drive/MyDrive/archive/WSNPROJECT/wataiData/results/0.01percent_34classes.csv')
+label_dict_34 = {
+    'BenignTraffic': 0,
+    'BrowserHijacking': 1,
+    'CommandInjection': 2,
+    'DDoS-ACK_Fragmentation': 3,
+    'DDoS-HTTP_Flood': 4,
+    'DDoS-ICMP_Flood': 5,
+    'DDoS-ICMP_Fragmentation': 6,
+    'DDoS-PSHACK_Flood': 7,
+    'DDoS-RSTFINFlood': 8,
+    'DDoS-SlowLoris': 9,
+    'DDoS-SYN_Flood': 10,
+    'DDoS-SynonymousIP_Flood': 11,
+    'DDoS-TCP_Flood': 12,
+    'DDoS-UDP_Flood': 13,
+    'SDDoS-UDP_Fragmentation': 14,
+    'DictionaryBruteForce': 15,
+    'DNS_Spoofing': 16,
+    'DoS-HTTP_Flood': 17,
+    'DoS-SYN_Flood': 18,
+    'DoS-TCP_Flood': 19,
+    'DoS-UDP_Flood': 20,
+    'Mirai-greeth_flood': 21,
+    'Mirai-greip_flood': 22,
+    'Mirai-udpplain': 23,
+    'MITM-ArpSpoofing': 23,
+    'Recon-HostDiscovery': 24,
+    'Recon-OSScan': 25,
+    'Recon-PortScan': 26,
+    'VulnerabilityScan': 27
+
+}
+print(label_dict_34)
+
+
+dict_2classes = {}
+dict_2classes['DDoS-RSTFINFlood'] = 'Attack'
+dict_2classes['DDoS-PSHACK_Flood'] = 'Attack'
+dict_2classes['DDoS-SYN_Flood'] = 'Attack'
+dict_2classes['DDoS-UDP_Flood'] = 'Attack'
+dict_2classes['DDoS-TCP_Flood'] = 'Attack'
+dict_2classes['DDoS-ICMP_Flood'] = 'Attack'
+dict_2classes['DDoS-SynonymousIP_Flood'] = 'Attack'
+dict_2classes['DDoS-ACK_Fragmentation'] = 'Attack'
+dict_2classes['DDoS-UDP_Fragmentation'] = 'Attack'
+dict_2classes['DDoS-ICMP_Fragmentation'] = 'Attack'
+dict_2classes['DDoS-SlowLoris'] = 'Attack'
+dict_2classes['DDoS-HTTP_Flood'] = 'Attack'
+dict_2classes['DoS-UDP_Flood'] = 'Attack'
+dict_2classes['DoS-SYN_Flood'] = 'Attack'
+dict_2classes['DoS-TCP_Flood'] = 'Attack'
+dict_2classes['DoS-HTTP_Flood'] = 'Attack'
+dict_2classes['Mirai-greeth_flood'] = 'Attack'
+dict_2classes['Mirai-greip_flood'] = 'Attack'
+dict_2classes['Mirai-udpplain'] = 'Attack'
+dict_2classes['Recon-PingSweep'] = 'Attack'
+dict_2classes['Recon-OSScan'] = 'Attack'
+dict_2classes['Recon-PortScan'] = 'Attack'
+dict_2classes['VulnerabilityScan'] = 'Attack'
+dict_2classes['Recon-HostDiscovery'] = 'Attack'
+dict_2classes['DNS_Spoofing'] = 'Attack'
+dict_2classes['MITM-ArpSpoofing'] = 'Attack'
+dict_2classes['BenignTraffic'] = 'Benign'
+dict_2classes['BrowserHijacking'] = 'Attack'
+dict_2classes['Backdoor_Malware'] = 'Attack'
+dict_2classes['XSS'] = 'Attack'
+dict_2classes['Uploading_Attack'] = 'Attack'
+dict_2classes['SqlInjection'] = 'Attack'
+dict_2classes['CommandInjection'] = 'Attack'
+dict_2classes['DictionaryBruteForce'] = 'Attack'
+
+
+inverse_label_dict_08 = {v: k for k, v in label_dict_08.items()}
+inverse_label_dict_34 = {v: k for k, v in label_dict_34.items()}
+
+
